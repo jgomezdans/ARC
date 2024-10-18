@@ -8,7 +8,9 @@ import datetime
 import numpy as np
 from osgeo import gdal
 from functools import partial
-from shapely.geometry import shape, Geometry
+from shapely.geometry import shape
+from shapely.geometry.base import BaseGeometry
+
 from concurrent.futures import ThreadPoolExecutor
 from arc.arc_util import ndvi_filter  # noqa
 
@@ -217,8 +219,8 @@ def calculate_s2_angles(
 
 
 def get_geometry_and_centroid(
-    geometry: "Geometry",
-) -> Tuple["Geometry", Tuple[float, float]]:
+    geometry: BaseGeometry,
+) -> Tuple[BaseGeometry, Tuple[float, float]]:
     """
     Given a geojson geometry object, this function will return the same geometry and its centroid.
 
@@ -239,7 +241,7 @@ def get_geometry_and_centroid(
 
 def get_geojson_geometry_and_centroid(
     geojson_path: str,
-) -> Tuple["Geometry", Tuple[float, float]]:
+) -> Tuple[BaseGeometry, Tuple[float, float]]:
     """
     Given a geojson file path, this function will load the geojson,
     and then return its geometry and centroid.
@@ -262,8 +264,8 @@ def get_geojson_geometry_and_centroid(
 
 
 def convert_geometry_to_ee_and_mgrs(
-    centroid: Tuple[float, float], geometry: "Geometry"
-) -> Tuple["ee.Geometry", str]:
+    centroid: Tuple[float, float], geometry: BaseGeometry
+) -> Tuple[ee.Geometry, str]:
     """
     Convert given geometry and centroid to Google Earth Engine (ee) geometry and
     Military Grid Reference System (MGRS) tile string.
@@ -345,7 +347,7 @@ def get_largest_mgrs_tile(ee_feature: ee.Feature) -> str:
 
 
 def filter_s2_collection(
-    ee_geometry: "ee.Geometry", start_date: str, end_date: str, mgrs_tile: str
+    ee_geometry: ee.Geometry, start_date: str, end_date: str, mgrs_tile: str
 ) -> List[Any]:
     """
     Filters the Sentinel-2 ImageCollection by geographical bounds, date range,
@@ -377,7 +379,7 @@ def filter_s2_collection(
         ) from e
 
 
-def get_doys(features: List[Union[dict, "ee.Feature"]]) -> np.ndarray:
+def get_doys(features: List[Union[dict, ee.Feature]]) -> np.ndarray:
     """
     Given a list of features, each containing a 'PRODUCT_ID' property, this
     function will return an array of the day of year (DOY) for each feature.
@@ -409,7 +411,7 @@ def get_doys(features: List[Union[dict, "ee.Feature"]]) -> np.ndarray:
 
 
 def download_images(
-    ee_geometry: "ee.Geometry", features: List[Any], S2_data_folder: str
+    ee_geometry: ee.Geometry, features: List[Any], S2_data_folder: str
 ) -> List[str]:
     """
     Downloads Sentinel-2 images for the given features using concurrent threads and returns the list of file paths.
