@@ -8,9 +8,9 @@ import datetime
 import numpy as np
 from osgeo import gdal
 from functools import partial
-from shapely.geometry import shape
+from shapely.geometry import shape, Geometry
 from concurrent.futures import ThreadPoolExecutor
-from arc.arc_util import ndvi_filter
+from arc.arc_util import ndvi_filter  # noqa
 
 # from robust_smoothing import robust_smooth
 
