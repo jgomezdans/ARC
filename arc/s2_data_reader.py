@@ -17,7 +17,7 @@ from arc.arc_util import ndvi_filter  # noqa
 # from robust_smoothing import robust_smooth
 
 
-from typing import List, Tuple, Union, Any
+from typing import List, Tuple, Union, Any, Optional
 
 gdal.PushErrorHandler("CPLQuietErrorHandler")
 
@@ -46,46 +46,72 @@ def load_geojson(file_path: str):
     # return .buffer(0)
 
 
-def download_s2_image(feature, geom, S2_data_folder: str) -> str:
+def add_bands_to_image(image: ee.Image, feature: dict) -> ee.Image:
     """
-    Download an S2 image from a given URL.
+    Add necessary bands (cloud probability, cloud score, and B10) to the image.
 
     Args:
-        feature: The feature of the image.
-        geom: The geometry of the image.
-        S2_data_folder (str): The folder to store the image.
+        image (ee.Image): The original Sentinel-2 image.
+        feature (dict): The feature containing metadata about the image.
 
     Returns:
-        str: The file path of the downloaded image.
+        ee.Image: The image with the additional bands.
+
+    Raises:
+        Exception: If any required bands cannot be added.
     """
-    s2_data_Res = 10
-    image_id = feature["id"]
-    S2_product_id = feature["properties"]["PRODUCT_ID"]
-    # print(image_id)
-    image = ee.Image(image_id)
+    try:
+        # Add cloud probability band
+        cloud = ee.Image(
+            "COPERNICUS/S2_CLOUD_PROBABILITY/%s"
+            % feature["properties"]["system:index"]
+        )
+        image = image.addBands(cloud)
 
-    # Add the cloud probability band to the image.
-    cloud = ee.Image(
-        "COPERNICUS/S2_CLOUD_PROBABILITY/%s"
-        % feature["properties"]["system:index"]
-    )
-    image = image.addBands(cloud)
+        # Add cloud score band
+        cloud_score = ee.Image(
+            "GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED/%s"
+            % feature["properties"]["system:index"]
+        )
+        image = image.addBands(cloud_score.multiply(100).int16())
 
-    # add cloud score+ band
-    cloud_score = ee.Image(
-        "GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED/%s"
-        % feature["properties"]["system:index"]
-    )
-    image = image.addBands(cloud_score.multiply(100).int16())
+        # Add L1C B10 band
+        b10 = ee.Image(
+            "COPERNICUS/S2_HARMONIZED/%s"
+            % feature["properties"]["system:index"]
+        ).select("B10")
+        image = image.addBands(b10)
 
-    # L1C B10
-    b10 = ee.Image(
-        "COPERNICUS/S2_HARMONIZED/%s" % feature["properties"]["system:index"]
-    ).select("B10")
-    image = image.addBands(b10)
+    except Exception as e:
+        raise Exception(f"Error adding bands: {e}")
 
-    filename = os.path.join(S2_data_folder, S2_product_id + ".tif")
-    bands = [
+    return image
+
+
+def download_image(
+    image: ee.Image,
+    S2_product_id: str,
+    geom,
+    filename: str,
+    s2_data_Res: int = 10,
+) -> Optional[str]:
+    """
+    Download the image with specified bands to a local file if not already downloaded.
+
+    Args:
+        image (ee.Image): The Sentinel-2 image with added bands.
+        S2_product_id (str): The ID of the Sentinel-2 product.
+        geom: The geometry (region) for downloading the image.
+        filename (str): The local file path for saving the downloaded image.
+        s2_data_Res (int): The resolution for downloading the image.
+
+    Returns:
+        Optional[str]: The file path of the downloaded image, or None if a download error occurs.
+
+    Raises:
+        Exception: If the download fails or any required band is missing.
+    """
+    required_bands = [
         "B2",
         "B3",
         "B4",
@@ -96,33 +122,80 @@ def download_s2_image(feature, geom, S2_data_folder: str) -> str:
         "B8A",
         "B11",
         "B12",
-        "probability",
-        "cs",
-        "cs_cdf",
         "B10",
     ]
 
+    # Check if bands exist in the image
+    existing_bands = image.bandNames().getInfo()
+    missing_bands = [
+        band for band in required_bands if band not in existing_bands
+    ]
+
+    if missing_bands:
+        raise Exception(f"Missing required bands: {', '.join(missing_bands)}")
+
     if not os.path.exists(filename):
-        # Define the download options.
         download_option = {
             "name": S2_product_id,
             "scale": s2_data_Res,
-            "bands": bands,
+            "bands": required_bands + ["probability", "cs", "cs_cdf"],
             "region": geom,
             "format": "GEO_TIFF",
             "maxPixels": 1e16,
         }
 
         # Get the download URL.
-        url = image.getDownloadURL(download_option)
+        try:
+            url = image.getDownloadURL(download_option)
+        except Exception as e:
+            raise Exception(f"Error generating download URL: {e}")
 
-        # Download the image.
-        r = requests.get(url, stream=True)
-        r.raise_for_status()
-        with open(filename, "wb") as out_file:
-            shutil.copyfileobj(r.raw, out_file)
+        # Download the image
+        try:
+            r = requests.get(url, stream=True)
+            r.raise_for_status()
+            with open(filename, "wb") as out_file:
+                shutil.copyfileobj(r.raw, out_file)
+        except Exception as e:
+            raise Exception(f"Error downloading image: {e}")
 
     return filename
+
+
+def download_s2_image(
+    feature: dict, geom, S2_data_folder: str
+) -> Optional[str]:
+    """
+    Main function to download a Sentinel-2 image, ensuring all required bands are present.
+
+    Args:
+        feature (dict): The feature containing metadata about the image.
+        geom: The geometry (region) for downloading the image.
+        S2_data_folder (str): The local folder to store the downloaded image.
+
+    Returns:
+        Optional[str]: The file path of the downloaded image, or None if adding bands fails or any required band is missing.
+    """
+    image_id = feature["id"]
+    S2_product_id = feature["properties"]["PRODUCT_ID"]
+    image = ee.Image(image_id)
+
+    # Try to add the required bands to the image
+    try:
+        image = add_bands_to_image(image, feature)
+    except Exception as e:
+        print(f"Failed to add bands: {e}")
+        return None
+
+    # Generate the file name
+    filename = os.path.join(S2_data_folder, S2_product_id + ".tif")
+
+    # Download the image
+    try:
+        return download_image(image, S2_product_id, geom, filename)
+    except Exception as e:
+        print(f"Failed to download image: {e}")
+        return None
 
 
 def read_s2_official_data(
@@ -512,6 +585,12 @@ def get_s2_official_data(
 
     # Download the S2 images concurrently and get the filenames
     filenames = download_images(ee_geometry, features, S2_data_folder)
+    # Filter out any None values from the filenames...
+    doys = [doys[i] for i, f in enumerate(filenames) if f is not None]
+    s2_angles = [
+        s2_angles[:, i] for i, f in enumerate(filenames) if f is not None
+    ]
+    filenames = [f for f in filenames if f is not None]
 
     # Convert the geometry to a GeoJSON string
     geojson_str = shapely.to_geojson(geometry)
