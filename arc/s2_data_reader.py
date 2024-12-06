@@ -34,8 +34,14 @@ def load_geojson(file_path: str):
     Returns:
         shape: The first shape in the GeoJSON file.
     """
-    with open(file_path) as f:
-        features = json.load(f)["features"]
+    if Path(file_path).exists():
+        features = json.load(open(file_path))["features"]
+    elif isinstance(file_path, str):
+        features = json.loads(file_path)["features"]
+    elif isinstance(file_path, dict):
+        features = file_path["features"]
+    else:
+        raise ValueError(f"Could not load GeoJSON file: {file_path}")
     geom = shape(features[0]["geometry"])
     if geom.is_valid:
         return geom
@@ -586,10 +592,14 @@ def get_s2_official_data(
     # Download the S2 images concurrently and get the filenames
     filenames = download_images(ee_geometry, features, S2_data_folder)
     # Filter out any None values from the filenames...
-    doys = [doys[i] for i, f in enumerate(filenames) if f is not None]
-    s2_angles = [
-        s2_angles[:, i] for i, f in enumerate(filenames) if f is not None
-    ]
+    doys = np.array(
+        [doys[i] for i, f in enumerate(filenames) if f is not None]
+    )
+    s2_angles = np.array(
+        [s2_angles[:, i] for i, f in enumerate(filenames) if f is not None]
+    ).T.tolist()
+    doys = np.array(doys)
+
     filenames = [f for f in filenames if f is not None]
 
     # Convert the geometry to a GeoJSON string

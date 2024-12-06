@@ -2,6 +2,7 @@ import os
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.optimize import least_squares
+
 # from BSM_soil import BSM
 from scipy.stats import qmc
 
@@ -10,9 +11,12 @@ from tqdm import tqdm
 
 from typing import List, Tuple, Union, Dict, Any
 
-data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
-def load_parameters(filepath: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+
+def load_parameters(
+    filepath: str,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Load parameters from a numpy archive.
 
@@ -24,7 +28,7 @@ def load_parameters(filepath: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     try:
         params = np.load(filepath, allow_pickle=True)
-        return params['GSV'], params['nw'], params['kw']
+        return params["GSV"], params["nw"], params["kw"]
     except IOError:
         print(f"Error: File {filepath} not found.")
         return None, None, None
@@ -32,7 +36,10 @@ def load_parameters(filepath: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         print(f"Error: Key {ke} not found in file.")
         return None, None, None
 
-def logistic_function(p: List[float], t: Union[float, np.ndarray]) -> np.ndarray:
+
+def logistic_function(
+    p: List[float], t: Union[float, np.ndarray]
+) -> np.ndarray:
     """
     Computes the double sigmoid logistic function.
 
@@ -43,18 +50,24 @@ def logistic_function(p: List[float], t: Union[float, np.ndarray]) -> np.ndarray
     Returns:
         np.ndarray: Output values computed using the logistic function.
     """
-    assert len(p) == 6, 'The parameter list p should contain exactly six elements.'
+    assert (
+        len(p) == 6
+    ), "The parameter list p should contain exactly six elements."
 
-    sigma1 = 1. / (1 + np.exp(p[2] * (t - p[3])))
-    sigma2 = 1. / (1 + np.exp(-p[4] * (t - p[5])))
+    sigma1 = 1.0 / (1 + np.exp(p[2] * (t - p[3])))
+    sigma2 = 1.0 / (1 + np.exp(-p[4] * (t - p[5])))
 
     return p[0] - p[1] * (sigma1 + sigma2 - 1)
+
 
 def normalize_data(data):
     """
     Normalizes data in the range [0,1]
     """
-    return (data - np.min(data, axis=0)) / (np.max(data, axis=0) - np.min(data, axis=0))
+    return (data - np.min(data, axis=0)) / (
+        np.max(data, axis=0) - np.min(data, axis=0)
+    )
+
 
 def sample_logistic(sample, num_samples):
     """
@@ -62,23 +75,27 @@ def sample_logistic(sample, num_samples):
     """
     # Updating the sample
     sample[:, 3] += sample[:, 1]
-    
+
     # Creating the y array
-    y = np.concatenate([[np.zeros(num_samples), np.ones(num_samples)], sample.T])
+    y = np.concatenate(
+        [[np.zeros(num_samples), np.ones(num_samples)], sample.T]
+    )
 
     # Calculating logistics and ensuring non-negative values
     logistics = logistic_function(y, np.arange(365)[:, None])
-    logistics[logistics<0] = 0
-    
+    logistics[logistics < 0] = 0
+
     # Normalizing logistics
     normalized_logistics = normalize_data(logistics)
-    
+
     return normalized_logistics
 
 
-def scale_samples(samples: np.ndarray, medians: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def scale_samples(
+    samples: np.ndarray, medians: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray]:
     """
-    This function scales the given samples based on the medians provided and the pre-defined limit values. 
+    This function scales the given samples based on the medians provided and the pre-defined limit values.
     It ensures that all scaled values are within their respective limits.
 
     Parameters:
@@ -91,13 +108,13 @@ def scale_samples(samples: np.ndarray, medians: np.ndarray) -> Tuple[np.ndarray,
 
     # Define the lower and upper limits for each attribute
     limits = [
-        [1, 3],    # N
+        [1, 3],  # N
         [0, 140],  # Cab
-        [0, 0.04], # Cw
-        [0, 0.1], # Cm
-        [0, 10],   # LAI
+        [0, 0.04],  # Cw
+        [0, 0.1],  # Cm
+        [0, 10],  # LAI
         [20, 90],  # Leaf angle
-        [0, 1.5]   # Cbrown
+        [0, 1.5],  # Cbrown
     ]
 
     # Initialize an empty list to hold the scaled samples
@@ -106,7 +123,7 @@ def scale_samples(samples: np.ndarray, medians: np.ndarray) -> Tuple[np.ndarray,
     # Scale each attribute separately
     for i in range(7):
         lower_limit, upper_limit = limits[i]
-        
+
         # Multiply the samples by the corresponding median
         scaled = samples[:, i, None] * medians[:, i][None]
 
@@ -122,7 +139,9 @@ def scale_samples(samples: np.ndarray, medians: np.ndarray) -> Tuple[np.ndarray,
     return scaled_samples, samples
 
 
-def compute_difference(p: List[float], x: np.ndarray, y: np.ndarray) -> np.ndarray:
+def compute_difference(
+    p: List[float], x: np.ndarray, y: np.ndarray
+) -> np.ndarray:
     """
     Computes the difference between a logistic function and provided y values.
 
@@ -134,13 +153,15 @@ def compute_difference(p: List[float], x: np.ndarray, y: np.ndarray) -> np.ndarr
     Returns:
         np.ndarray: Difference between the logistic function and y values. Any non-finite values are replaced with 0.
     """
-    
+
     # Check if inputs are numpy arrays
     assert isinstance(x, np.ndarray), "Input x must be a numpy array."
     assert isinstance(y, np.ndarray), "Input y must be a numpy array."
-    
+
     # Check if input arrays have same shape
-    assert x.shape == y.shape, "Input arrays x and y must have the same shape."
+    assert (
+        x.shape == y.shape
+    ), "Input arrays x and y must have the same shape."
 
     # Compute logistic function with given parameters and inputs
     result = logistic_function(p, x)
@@ -154,7 +175,9 @@ def compute_difference(p: List[float], x: np.ndarray, y: np.ndarray) -> np.ndarr
     return difference
 
 
-def get_mapping(reference_p: List[float], logistics: np.ndarray, num_samples: int) -> Tuple[np.ndarray, np.ndarray]:
+def get_mapping(
+    reference_p: List[float], logistics: np.ndarray, num_samples: int
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Maps the indices of a reference logistic function to the provided logistic functions.
 
@@ -167,7 +190,7 @@ def get_mapping(reference_p: List[float], logistics: np.ndarray, num_samples: in
         Tuple[np.ndarray, np.ndarray]: A tuple containing the mapping and ensemble indices.
     """
     # Ensure that reference_p has exactly six parameters
-    assert len(reference_p) == 6, 'reference_p should have six parameters.'
+    assert len(reference_p) == 6, "reference_p should have six parameters."
 
     # Generate 365 days array
     days = np.arange(365)
@@ -175,7 +198,9 @@ def get_mapping(reference_p: List[float], logistics: np.ndarray, num_samples: in
     # Generate reference logistic function and normalize it
     y = logistic_function(reference_p, days)
     normalized_y = (y - y.min()) / (y.max() - y.min())
-    normalized_y[np.argmax(normalized_y):] = normalized_y[np.argmax(normalized_y):] * -1 + 2
+    normalized_y[np.argmax(normalized_y) :] = (
+        normalized_y[np.argmax(normalized_y) :] * -1 + 2
+    )
 
     # Flip the logistic functions after their maximum points
     argmaxs = np.argmax(logistics, axis=0)
@@ -183,15 +208,20 @@ def get_mapping(reference_p: List[float], logistics: np.ndarray, num_samples: in
     logistics[mask] = logistics[mask] * -1 + 2
 
     # Create an interpolation function based on the normalized reference logistic function
-    interpolation_func = interp1d(normalized_y, days, fill_value='extrapolate')
+    interpolation_func = interp1d(
+        normalized_y, days, fill_value="extrapolate"
+    )
 
     # Generate the mapping of logistics to the reference, and ensure it falls within the range [0, 364]
     mapping = np.clip(interpolation_func(logistics).astype(int), 0, 364)
 
     # Generate the ensemble indices
-    ensemble_indices = np.repeat(np.arange(num_samples), 365).reshape(num_samples, 365).T
+    ensemble_indices = (
+        np.repeat(np.arange(num_samples), 365).reshape(num_samples, 365).T
+    )
 
     return mapping, ensemble_indices
+
 
 def load_crop_model(crop_type: str) -> Dict[str, np.ndarray]:
     """
@@ -205,21 +235,25 @@ def load_crop_model(crop_type: str) -> Dict[str, np.ndarray]:
     """
     # Map of crop types to file paths
     crop_models = {
-        'maize': data_dir + '/US_001.npz',
-        'soybean': data_dir + '/US_005.npz',
-        'rice': data_dir + '/China_000.npz',
-        'wheat': data_dir + '/US_024.npz',
+        "maize": data_dir + "/US_001.npz",
+        "soybean": data_dir + "/US_005.npz",
+        "rice": data_dir + "/China_000.npz",
+        "wheat": data_dir + "/US_024.npz",
         # 'potato': data_dir + '/US_Potatoes_model_para.npz',
     }
     crop_type = crop_type.lower()
     if crop_type not in crop_models:
-        raise ValueError(f"Invalid crop type {crop_type}. Valid types are: {list(crop_models.keys())}")
+        raise ValueError(
+            f"Invalid crop type {crop_type}. Valid types are: {list(crop_models.keys())}"
+        )
 
     crop_model_file = crop_models[crop_type]
     return np.load(crop_model_file)
 
 
-def adjust_parameters(meds: np.ndarray, p_mins: np.ndarray, p_maxs: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def adjust_parameters(
+    meds: np.ndarray, p_mins: np.ndarray, p_maxs: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Adjust parameters based on median values.
 
@@ -241,6 +275,7 @@ def adjust_parameters(meds: np.ndarray, p_mins: np.ndarray, p_maxs: np.ndarray) 
 
     return p_mins, p_maxs
 
+
 def compute_reference_parameters(medians: np.ndarray) -> Tuple[float, ...]:
     """
     Compute reference parameters for logistic functions.
@@ -252,8 +287,17 @@ def compute_reference_parameters(medians: np.ndarray) -> Tuple[float, ...]:
         Tuple[float, ...]: Reference parameters.
     """
     NUM_DAYS = 365
-    INITIAL_PARAMETERS = 0., 2, 0.1, None, 0.1, None  # Placeholder values for the start and end days
-    BOUNDS = np.array([[0, 1], [0, 10], [0, 1], [0, NUM_DAYS], [0, 1], [0, NUM_DAYS]]).T
+    INITIAL_PARAMETERS = (
+        0.0,
+        2,
+        0.1,
+        None,
+        0.1,
+        None,
+    )  # Placeholder values for the start and end days
+    BOUNDS = np.array(
+        [[0, 1], [0, 10], [0, 1], [0, NUM_DAYS], [0, 1], [0, NUM_DAYS]]
+    ).T
 
     day_indices = np.arange(NUM_DAYS)
     mid_index = np.nanmedian(day_indices[np.argsort(medians[:, 4])][-10:])
@@ -265,9 +309,15 @@ def compute_reference_parameters(medians: np.ndarray) -> Tuple[float, ...]:
     initial_parameters[3] = start_day
     initial_parameters[5] = end_day
 
-    result = least_squares(compute_difference, initial_parameters, loss='soft_l1', f_scale=0.001,
-                           args=(np.arange(NUM_DAYS), medians[:, 4]), bounds=BOUNDS)
-    
+    result = least_squares(
+        compute_difference,
+        initial_parameters,
+        loss="soft_l1",
+        f_scale=0.001,
+        args=(np.arange(NUM_DAYS), medians[:, 4]),
+        bounds=BOUNDS,
+    )
+
     return tuple(result.x)
 
 
@@ -282,12 +332,14 @@ def load_model(model_path: str) -> Any:
         Any: Loaded model.
     """
     f = np.load(model_path, allow_pickle=True)
-    model_weights = f['model_weights'].tolist()
+    model_weights = f["model_weights"].tolist()
 
     return model_weights
 
 
-def predict_input_slices(inp_slices: List[np.ndarray], model_weights: List[np.ndarray]) -> List[np.ndarray]:
+def predict_input_slices(
+    inp_slices: List[np.ndarray], model_weights: List[np.ndarray]
+) -> List[np.ndarray]:
     """
     Predicts using the model for each input slice.
 
@@ -299,16 +351,20 @@ def predict_input_slices(inp_slices: List[np.ndarray], model_weights: List[np.nd
         List[np.ndarray]: List of model prediction results.
     """
     from arc.NN_predict_jax import predict
-    
+
     predictions = []
-    for inp_slice in tqdm(inp_slices, desc="Predicting S2 reflectance", unit="slice"):
+    for inp_slice in tqdm(
+        inp_slices, desc="Predicting S2 reflectance", unit="slice"
+    ):
         prediction = predict(inp_slice, model_weights, cal_jac=False)
         predictions.append(prediction)
     predictions = np.concatenate(predictions, axis=1).squeeze()
     return predictions
 
 
-def adjust_orig_bios(orig_bios: np.ndarray, multipliers: List[int]) -> np.ndarray:
+def adjust_orig_bios(
+    orig_bios: np.ndarray, multipliers: List[int]
+) -> np.ndarray:
     """
     Adjusts `orig_bios` by multiplying each of its elements by corresponding multipliers.
 
@@ -325,7 +381,9 @@ def adjust_orig_bios(orig_bios: np.ndarray, multipliers: List[int]) -> np.ndarra
     return temp
 
 
-def generate_samples(p_mins: np.ndarray, p_maxs: np.ndarray, num_samples: int) -> np.ndarray:
+def generate_samples(
+    p_mins: np.ndarray, p_maxs: np.ndarray, num_samples: int
+) -> np.ndarray:
     """
     Generate samples within the specified range using a Sobol sequence.
 
@@ -346,14 +404,14 @@ def generate_samples(p_mins: np.ndarray, p_maxs: np.ndarray, num_samples: int) -
     sampler = qmc.Sobol(d=len(p_mins), scramble=False)
     sample = sampler.random_base2(m=m)
     sample = qmc.scale(sample, p_mins, p_maxs)
-    
+
     return sample
 
 
 def compute_walthall_coef(sza, vza, raa):
     """
     Compute the Walthall coefficient.
-    
+
     Args:
         sza (float): Solar zenith angle.
         vza (float): View zenith angle.
@@ -366,7 +424,15 @@ def compute_walthall_coef(sza, vza, raa):
     rad_sza = np.deg2rad(sza)
     rad_vza = np.deg2rad(vza)
     rad_raa = np.deg2rad(raa)
-    Walthall_coef = 1 / 16.41 * (rad_sza * rad_vza * np.cos(rad_raa) * 7.363 - 4.3 * (rad_vza**2 + rad_sza**2) + 7.702 * rad_sza**2 * rad_vza**2)
+    Walthall_coef = (
+        1
+        / 16.41
+        * (
+            rad_sza * rad_vza * np.cos(rad_raa) * 7.363
+            - 4.3 * (rad_vza**2 + rad_sza**2)
+            + 7.702 * rad_sza**2 * rad_vza**2
+        )
+    )
     return Walthall_coef
 
 
@@ -390,6 +456,7 @@ def prepare_geometry_params(sza, vza, raa, doys, num_samples):
     raa = np.repeat(raa, num_samples).reshape(len(doys), num_samples)
     return sza, vza, raa
 
+
 def adjust_soil_params(p0, p1, p2, p3, Walthall_coef):
     """
     Adjust and normalize the soil parameters.
@@ -403,19 +470,42 @@ def adjust_soil_params(p0, p1, p2, p3, Walthall_coef):
     """
     # Implement this function based on your specific needs.
 
-    p0 = np.array([p0,] * len(Walthall_coef))
-    p1 = np.array([p1,] * len(Walthall_coef))
-    p2 = np.array([p2,] * len(Walthall_coef))
-    p3 = np.array([p3,] * len(Walthall_coef))
+    p0 = np.array(
+        [
+            p0,
+        ]
+        * len(Walthall_coef)
+    )
+    p1 = np.array(
+        [
+            p1,
+        ]
+        * len(Walthall_coef)
+    )
+    p2 = np.array(
+        [
+            p2,
+        ]
+        * len(Walthall_coef)
+    )
+    p3 = np.array(
+        [
+            p3,
+        ]
+        * len(Walthall_coef)
+    )
 
     p0 = p0 / 1.5
     p1 = (p1 - 10) / 70
     p2 = (p2 - 22) / (130 - 22)
-    p3 = (p3 - 2 ) / (100 - 2)
+    p3 = (p3 - 2) / (100 - 2)
     p0 = p0 + p0 * Walthall_coef[:, None]
     return p0, p1, p2, p3
 
-def adjust_bio_params(N, cab, cm, cw, lai, ala, cbrown, mapping, ens_inds, doys):
+
+def adjust_bio_params(
+    N, cab, cm, cw, lai, ala, cbrown, mapping, ens_inds, doys
+):
     """
     Adjust the biophysical parameters with a temporal dynamic and random offset.
 
@@ -430,51 +520,70 @@ def adjust_bio_params(N, cab, cm, cw, lai, ala, cbrown, mapping, ens_inds, doys)
     """
     # Implement this function based on your specific needs.
     random_date = 0
-    offset = np.random.uniform(-random_date, random_date, ens_inds.shape[1]).astype(int)
-    N = N[np.minimum(mapping + offset[None,], 364), ens_inds][doys-1] #* 0 + 2.2 
+    offset = np.random.uniform(
+        -random_date, random_date, ens_inds.shape[1]
+    ).astype(int)
+    N = N[np.minimum(mapping + offset[None,], 364), ens_inds][
+        doys - 1
+    ]  # * 0 + 2.2
     # map_ind = np.arange(len(mapping[0]))
     # np.random.shuffle(map_ind)
     # mapping = mapping[:, map_ind]
     # np.random.shuffle(mapping)
 
-    offset = np.random.uniform(-random_date, random_date, ens_inds.shape[1]).astype(int)
-    cab = cab[np.minimum(mapping + offset[None,], 364), ens_inds][doys-1]
+    offset = np.random.uniform(
+        -random_date, random_date, ens_inds.shape[1]
+    ).astype(int)
+    cab = cab[np.minimum(mapping + offset[None,], 364), ens_inds][doys - 1]
     # np.random.shuffle(mapping)
     # np.random.shuffle(map_ind)
     # mapping = mapping[:, map_ind]
 
-    offset = np.random.uniform(-random_date, random_date, ens_inds.shape[1]).astype(int)
-    cm = cm[np.minimum(mapping + offset[None,], 364), ens_inds][doys-1] 
+    offset = np.random.uniform(
+        -random_date, random_date, ens_inds.shape[1]
+    ).astype(int)
+    cm = cm[np.minimum(mapping + offset[None,], 364), ens_inds][doys - 1]
     # np.random.shuffle(mapping)
     # np.random.shuffle(map_ind)
     # mapping = mapping[:, map_ind]
 
-    offset = np.random.uniform(-random_date, random_date, ens_inds.shape[1]).astype(int)
-    cw = cw[np.minimum(mapping + offset[None,], 364), ens_inds][doys-1] 
+    offset = np.random.uniform(
+        -random_date, random_date, ens_inds.shape[1]
+    ).astype(int)
+    cw = cw[np.minimum(mapping + offset[None,], 364), ens_inds][doys - 1]
     # np.random.shuffle(mapping)
     # np.random.shuffle(map_ind)
     # mapping = mapping[:, map_ind]
 
-    offset = np.random.uniform(-random_date, random_date, ens_inds.shape[1]).astype(int)
-    lai= lai[np.minimum(mapping + offset[None,], 364), ens_inds][doys-1]
+    offset = np.random.uniform(
+        -random_date, random_date, ens_inds.shape[1]
+    ).astype(int)
+    lai = lai[np.minimum(mapping + offset[None,], 364), ens_inds][doys - 1]
     # np.random.shuffle(mapping)
     # np.random.shuffle(map_ind)
     # mapping = mapping[:, map_ind]
 
-    offset = np.random.uniform(-random_date, random_date, ens_inds.shape[1]).astype(int)
-    ala = ala[np.minimum(mapping + offset[None,], 364), ens_inds][doys-1] 
+    offset = np.random.uniform(
+        -random_date, random_date, ens_inds.shape[1]
+    ).astype(int)
+    ala = ala[np.minimum(mapping + offset[None,], 364), ens_inds][doys - 1]
     # np.random.shuffle(mapping)
     # np.random.shuffle(map_ind)
     # mapping = mapping[:, map_ind]
 
-    offset = np.random.uniform(-random_date, random_date, ens_inds.shape[1]).astype(int)
-    cbrown = cbrown[np.minimum(mapping + offset[None,], 364), ens_inds][doys-1]
+    offset = np.random.uniform(
+        -random_date, random_date, ens_inds.shape[1]
+    ).astype(int)
+    cbrown = cbrown[np.minimum(mapping + offset[None,], 364), ens_inds][
+        doys - 1
+    ]
 
     return N, cab, cm, cw, lai, ala, cbrown
 
 
-
-def prepare_final_input(N, cab, car, cbrown, cw, cm, lai, ala, sza, vza, raa, p0, p1, p2, p3):
+def prepare_final_input(
+    N, cab, car, cbrown, cw, cm, lai, ala, sza, vza, raa, p0, p1, p2, p3
+):
     """
     Prepare the final input array.
 
@@ -489,26 +598,34 @@ def prepare_final_input(N, cab, car, cbrown, cw, cm, lai, ala, sza, vza, raa, p0
     vza = np.cos(np.deg2rad(vza))
     raa = raa % 360 / 360
     inp = [
-        (N - 1.) / 2.5, 
-        np.exp(-cab/100.), 
-        np.exp(-car/100.), 
-        cbrown, 
-        np.exp(-50.*cw), 
-        np.exp(-50.*cm), 
-        np.exp(-lai/2.), 
-        np.cos(np.deg2rad(ala)), 
-        sza, vza, raa, p0, p1, p2, p3
+        (N - 1.0) / 2.5,
+        np.exp(-cab / 100.0),
+        np.exp(-car / 100.0),
+        cbrown,
+        np.exp(-50.0 * cw),
+        np.exp(-50.0 * cm),
+        np.exp(-lai / 2.0),
+        np.cos(np.deg2rad(ala)),
+        sza,
+        vza,
+        raa,
+        p0,
+        p1,
+        p2,
+        p3,
     ]
     inp = np.array(inp)
     inp = inp.reshape(15, -1)
     return inp
 
 
-def create_sample(bio_paras, angs, soil_paras, doys, ens_inds, mapping, num_samples):
+def create_sample(
+    bio_paras, angs, soil_paras, doys, ens_inds, mapping, num_samples
+):
     """
-    Creates an array of samples containing parameters related to bio and soil properties, 
+    Creates an array of samples containing parameters related to bio and soil properties,
     observation geometry, and temporal information.
-    
+
     Args:
         bio_paras (np.ndarray): Biophysical parameters.
         angs (tuple): Tuple containing the angles (sza, vza, raa).
@@ -517,7 +634,7 @@ def create_sample(bio_paras, angs, soil_paras, doys, ens_inds, mapping, num_samp
         ens_inds (np.ndarray): Array of ensemble indices.
         mapping (np.ndarray): Temporal mapping array.
         num_samples (int): Number of samples to generate.
-        
+
     Returns:
         tuple: Input samples and original biophysical parameters.
     """
@@ -536,19 +653,22 @@ def create_sample(bio_paras, angs, soil_paras, doys, ens_inds, mapping, num_samp
     p0, p1, p2, p3 = adjust_soil_params(p0, p1, p2, p3, Walthall_coef)
 
     # Adjust biophysical parameters with a temporal dynamic and random offset
-    N, cab, cm, cw, lai, ala, cbrown = adjust_bio_params(N, cab, cm, cw, lai, ala, cbrown, mapping, ens_inds, doys)
+    N, cab, cm, cw, lai, ala, cbrown = adjust_bio_params(
+        N, cab, cm, cw, lai, ala, cbrown, mapping, ens_inds, doys
+    )
 
     # Assume carotenoid content is a quarter of chlorophyll content
     car = cab / 4
 
     # Prepare final input array
-    inp = prepare_final_input(N, cab, car, cbrown, cw, cm, lai, ala, sza, vza, raa, p0, p1, p2, p3)
-    
+    inp = prepare_final_input(
+        N, cab, car, cbrown, cw, cm, lai, ala, sza, vza, raa, p0, p1, p2, p3
+    )
+
     # Package original biophysical parameters
     orig_bios = np.array([N, cab, cm, cw, lai, ala, cbrown])
 
     return inp, orig_bios
-
 
 
 def generate_ref_samples(p_mins, p_maxs, num_samples, angs, doys, crop_type):
@@ -570,7 +690,7 @@ def generate_ref_samples(p_mins, p_maxs, num_samples, angs, doys, crop_type):
     # Load the crop model
     crop_model = load_crop_model(crop_type)
     # deltas = crop_model['deltas']
-    medians = crop_model['meds']
+    medians = crop_model["meds"]
 
     # Adjust the parameter ranges
     p_mins, p_maxs = adjust_parameters(medians, p_mins, p_maxs)
@@ -579,11 +699,11 @@ def generate_ref_samples(p_mins, p_maxs, num_samples, angs, doys, crop_type):
     sample = generate_samples(p_mins, p_maxs, num_samples)
 
     # Divide the samples into phenological, biophysical, and soil samples
-    pheo_samples = sample[:,   :4]
-    bio_samples  = sample[:, 4:-4]
-    soil_samples = sample[:,  -4:]
+    pheo_samples = sample[:, :4]
+    bio_samples = sample[:, 4:-4]
+    soil_samples = sample[:, -4:]
     # number of samples will change after the Sobol sampling
-    num_samples  = pheo_samples.shape[0]
+    num_samples = pheo_samples.shape[0]
 
     # Compute the reference parameters and create the logistic curves
     reference_p = compute_reference_parameters(medians)
@@ -594,14 +714,18 @@ def generate_ref_samples(p_mins, p_maxs, num_samples, angs, doys, crop_type):
     bio_paras, bio_samples = scale_samples(bio_samples, medians)
 
     # Create the input samples for the forward model
-    inp, orig_bios = create_sample(bio_paras, angs, soil_samples.T, doys, ens_inds, mapping, num_samples)
+    inp, orig_bios = create_sample(
+        bio_paras, angs, soil_samples.T, doys, ens_inds, mapping, num_samples
+    )
 
     # Adjust the original biophysical parameters
-    orig_bios = adjust_orig_bios(orig_bios, [100, 100, 10000, 10000, 100, 100, 1000])
+    orig_bios = adjust_orig_bios(
+        orig_bios, [100, 100, 10000, 10000, 100, 100, 1000]
+    )
 
     # Load the forward model weights
-    model_weights = load_model(data_dir + '/foward_prosail_model_weights.npz')
-    
+    model_weights = load_model(data_dir + "/foward_prosail_model_weights.npz")
+
     # Split the inputs for batch processing
     inp_slices = np.array_split(np.atleast_2d(inp).T, 300)
 
@@ -616,8 +740,14 @@ def generate_ref_samples(p_mins, p_maxs, num_samples, angs, doys, crop_type):
     return arc_refs, pheo_samples, bio_samples, orig_bios, soil_samples
 
 
-
-def generate_arc_refs(doys: List[int], start_of_season: int, growth_season_length: int, num_samples: int, angs: List[float], crop_type: str) -> Tuple:
+def generate_arc_refs(
+    doys: List[int],
+    start_of_season: int,
+    growth_season_length: int,
+    num_samples: int,
+    angs: List[float],
+    crop_type: str,
+) -> Tuple:
     """
     Generates references for Sentinel-2 based on given parameters.
 
@@ -638,52 +768,89 @@ def generate_arc_refs(doys: List[int], start_of_season: int, growth_season_lengt
     # p_maxs = [0.325, min([start_of_season + 50, 365]),  0.37,  growth_season_length+30, 3, 100,   0.015,  0.06,  8,   80.,   1.5, 0.7,   30,   70, 100]
 
     parameters = {
-        'growth_speed'        : {'min': 0.045,                          'max': 0.325},
-        'start_of_season'     : {'min': max([start_of_season - 10, 0]), 'max': min([start_of_season + 50, 365])},
-        'senescence_speed'    : {'min': 0.01,                           'max': 0.37},
-        'end_of_season'       : {'min': growth_season_length-30,        'max': growth_season_length+30},
-        'N'                   : {'min': 1,                              'max': 3},
-        'Cab'                 : {'min': 20,                             'max': 80},
-        'Cm'                  : {'min': 0.001,                          'max': 0.04},
-        'Cw'                  : {'min': 0.001,                          'max': 0.1},
-        'Lai'                 : {'min': 0.5,                            'max': 8},
-        'Ala'                 : {'min': 50,                             'max': 80},
-        'Cb'                  : {'min': 0,                              'max': 1.5},
-        'soil_brightness'     : {'min': 0.1,                            'max': 0.7},
-        'soil_shape_p1'       : {'min': 10,                             'max': 30},
-        'soil_shape_p2'       : {'min': 10,                             'max': 70},
-        'soil_volume_moisture': {'min': 2,                              'max': 100},
+        "growth_speed": {"min": 0.045, "max": 0.325},
+        "start_of_season": {
+            "min": max([start_of_season - 10, 0]),
+            "max": min([start_of_season + 50, 365]),
+        },
+        "senescence_speed": {"min": 0.01, "max": 0.37},
+        "end_of_season": {
+            "min": growth_season_length - 30,
+            "max": growth_season_length + 30,
+        },
+        "N": {"min": 1, "max": 3},
+        "Cab": {"min": 20, "max": 80},
+        "Cm": {"min": 0.001, "max": 0.04},
+        "Cw": {"min": 0.001, "max": 0.1},
+        "Lai": {"min": 0.5, "max": 8},
+        "Ala": {"min": 50, "max": 80},
+        "Cb": {"min": 0, "max": 1.5},
+        "soil_brightness": {"min": 0.1, "max": 0.7},
+        "soil_shape_p1": {"min": 10, "max": 30},
+        "soil_shape_p2": {"min": 10, "max": 70},
+        "soil_volume_moisture": {"min": 2, "max": 100},
     }
 
-    p_mins = [values['min'] for values in parameters.values()]
-    p_maxs = [values['max'] for values in parameters.values()]
+    p_mins = [values["min"] for values in parameters.values()]
+    p_maxs = [values["max"] for values in parameters.values()]
 
     # Generate reference samples
-    arc_refs, pheo_samples, bio_samples, orig_bios, soil_samples = generate_ref_samples(p_mins, p_maxs, num_samples, angs, doys, crop_type)
-    
+    arc_refs, pheo_samples, bio_samples, orig_bios, soil_samples = (
+        generate_ref_samples(
+            p_mins, p_maxs, num_samples, angs, doys, crop_type
+        )
+    )
+
     return arc_refs, pheo_samples, bio_samples, orig_bios, soil_samples
 
 
 if __name__ == "__main__":
-
     doys = np.arange(1, 366, 5)
-    angs = np.array([30,] * len(doys)), np.array([10,] * len(doys)), np.array([120,] * len(doys)) 
-    
+    angs = (
+        np.array(
+            [
+                30,
+            ]
+            * len(doys)
+        ),
+        np.array(
+            [
+                10,
+            ]
+            * len(doys)
+        ),
+        np.array(
+            [
+                120,
+            ]
+            * len(doys)
+        ),
+    )
+
     num_samples = 10000
     start_of_season = 100
     growth_season_length = 45
-    crop_type = 'maize'
+    crop_type = "maize"
 
     # Generate reference samples
-    arc_refs, pheo_samples, bio_samples, orig_bios, soil_samples = generate_arc_refs(doys, start_of_season, growth_season_length, num_samples, angs, crop_type)
+    arc_refs, pheo_samples, bio_samples, orig_bios, soil_samples = (
+        generate_arc_refs(
+            doys,
+            start_of_season,
+            growth_season_length,
+            num_samples,
+            angs,
+            crop_type,
+        )
+    )
 
     max_lai = np.nanmax(orig_bios[4], axis=0)
     ndvi = (arc_refs[7] - arc_refs[3]) / (arc_refs[7] + arc_refs[3])
     max_ndvi = np.nanmax(ndvi, axis=0)
-    
-    import matplotlib.pyplot as plt
-    plt.figure(figsize=(8, 8))
-    plt.plot(max_ndvi, max_lai/100, 'o', ms=5, alpha=0.1)
-    plt.xlabel('Max NDVI')
-    plt.ylabel('Max LAI (m$^2$/m$^2$)')
 
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(8, 8))
+    plt.plot(max_ndvi, max_lai / 100, "o", ms=5, alpha=0.1)
+    plt.xlabel("Max NDVI")
+    plt.ylabel("Max LAI (m$^2$/m$^2$)")
