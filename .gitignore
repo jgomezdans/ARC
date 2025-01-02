@@ -5,3 +5,5 @@ arc.egg-info
 .DS_Store
 test_LMU.py
 bulgaria/
+*pdf
+*png
