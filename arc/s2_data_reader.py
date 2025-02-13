@@ -36,6 +36,10 @@ def load_geojson(file_path: str):
     """
     if Path(file_path).exists():
         features = json.load(open(file_path))["features"]
+    elif isinstance(file_path, shapely.geometry.multipolygon.MultiPolygon):
+        geom = file_path
+        return geom if geom.is_valid else geom.buffer(0)
+
     elif isinstance(file_path, str):
         features = json.loads(file_path)["features"]
     elif isinstance(file_path, dict):
@@ -43,12 +47,7 @@ def load_geojson(file_path: str):
     else:
         raise ValueError(f"Could not load GeoJSON file: {file_path}")
     geom = shape(features[0]["geometry"])
-    if geom.is_valid:
-        return geom
-    else:
-        geom = geom.buffer(0)
-        return geom
-
+    return geom if geom.is_valid else geom.buffer(0)
     # return .buffer(0)
 
 
@@ -319,7 +318,7 @@ def get_geometry_and_centroid(
 
 
 def get_geojson_geometry_and_centroid(
-    geojson_path: str,
+    geojson_path: str | dict | BaseGeometry,
 ) -> Tuple[BaseGeometry, Tuple[float, float]]:
     """
     Given a geojson file path, this function will load the geojson,
@@ -331,15 +330,19 @@ def get_geojson_geometry_and_centroid(
     Returns:
     tuple: A tuple containing the geojson geometry and its centroid (as a tuple of floats).
     """
-    try:
-        geometry = load_geojson(geojson_path)
-        return get_geometry_and_centroid(geometry)
-    except FileNotFoundError:
-        raise ValueError(f"Geojson file not found at: {geojson_path}")
-    except Exception as e:
-        raise ValueError(
-            "An error occurred while processing the geojson file."
-        ) from e
+    if isinstance(geojson_path, str):
+        try:
+            geometry = load_geojson(geojson_path)
+        except FileNotFoundError:
+            raise ValueError(f"Geojson file not found at: {geojson_path}")
+        except Exception as e:
+            raise ValueError(
+                "An error occurred while processing the geojson file."
+            ) from e
+    else:
+        geometry = geojson_path
+    geometry = geometry.buffer(0)
+    return get_geometry_and_centroid(geometry)
 
 
 def convert_geometry_to_ee_and_mgrs(
@@ -393,7 +396,7 @@ def get_largest_mgrs_tile(ee_feature: ee.Feature) -> str:
         str: The MGRS tile ID with the largest intersection.
     """
 
-    # Load Sentinel-2 Harmonized image collection for January 2023
+    # Load Sentinel-2 Harmonized image collection for January 2020
     sentinel2 = (
         ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
         .filterBounds(ee_feature.geometry())

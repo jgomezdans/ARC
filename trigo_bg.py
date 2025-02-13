@@ -3,126 +3,29 @@ from pathlib import Path
 from osgeo import gdal, osr
 import numpy as np
 import datetime as dt
-import pandas as pd
+import shapely.geometry
+import geopandas as gpd
 
 gdal.UseExceptions()
-
 # Constants
-start_date = "2019-01-01"
-end_date = "2019-10-15"
 START_OF_SEASON = 70
 CROP_TYPE = "wheat"
 GROWTH_SEASON_LENGTH = 70
 NUM_SAMPLES = 100000
 
-LAZY_EVALUATION_STEP = 100
-ALPHA = 0.8
-LINE_WIDTH = 2
-# Set up a "crop map" for each field and year....
-data = {
-    "year": [
-        2019,
-        2019,
-        2019,
-        2019,
-        2019,
-        2019,
-        2020,
-        2020,
-        2020,
-        2020,
-        2020,
-        2020,
-        2021,
-        2021,
-        2021,
-        2021,
-        2021,
-        2021,
-        2022,
-        2022,
-        2022,
-        2022,
-        2022,
-        2022,
-        2024,
-        2024,
-        2024,
-        2024,
-        2024,
-        2024,
-    ],
-    "field": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-    ],
-    "crop_type": [
-        "Wheat",
-        "Wheat",
-        "Wheat",
-        "Maize",
-        "Maize",
-        "Maize",
-        "Maize",
-        "Maize",
-        "Wheat",
-        "Wheat",
-        "Wheat",
-        "Wheat",
-        "Maize",
-        "Wheat",
-        "Maize",
-        "Maize",
-        "Maize",
-        "Maize",
-        "Wheat",
-        "Maize",
-        "Maize",
-        "Maize",
-        "Maize",
-        "Maize",
-        "Wheat",
-        "Maize",
-        "Wheat",
-        "Maize",
-        "Maize",
-        "Maize",
-    ],
-}
-
-# Creating the dataframe
-cropmap_df = pd.DataFrame(data)
+BG_CROP_CALENDAR = {"wheat": (30, 114), "maize": (124, 64)}
 
 
-def npz_to_geotiff(npz_dump):
+def npz_to_geotiff(npz_dump: str) -> None:
+    """
+    Converts a .npz file containing numpy arrays to a GeoTIFF file.
+
+    Parameters:
+    npz_dump (str): Path to the .npz file containing the numpy arrays.
+
+    Returns:
+    None
+    """
     params = ["N", "Cab", "Cm", "Cw", "LAI", "ALA", "Cbrown"]
     scaling = [
         1.0 / 100.0,
@@ -167,61 +70,63 @@ def npz_to_geotiff(npz_dump):
 
 
 def main(
-    geojson_path: str | Path,
+    year: int,
+    crop: str,
+    field_no: int,
+    field_geometry: str | Path | shapely.geometry.base.BaseGeometry,
     arc_dir: str | Path = "/home/jose/python/ARC/bulgaria/",
 ):
     """Main function to execute the Arc field processing and plotting"""
-    field_no = int(geojson_path.stem.split("_")[-1])
 
-    for year in [2021, 2022, 2024]:
-        start_date = f"{year}-1-01"
-        end_date = f"{year}-10-15"
+    start_date = f"{year}-01-01"
+    end_date = f"{year}-10-15"
 
-        the_crop = cropmap_df[
-            np.logical_and(
-                cropmap_df.year == year, cropmap_df.field == field_no
-            )
-        ].crop_type.values[0]
-        if the_crop.lower() == "wheat":
-            start_of_season = 30
-            season_length = 114
-        elif the_crop.lower() == "maize":
-            start_of_season = 124
-            season_length = 64
-        arc_dir = Path(arc_dir)
-        suffix = Path(geojson_path).stem
-        S2_data_folder = Path(arc_dir) / suffix / "S2_data"
-        S2_data_folder.mkdir(parents=True, exist_ok=True)
+    arc_dir = Path(arc_dir)
+    S2_data_folder = Path(arc_dir) / "S2_data"
+    S2_data_folder.mkdir(parents=True, exist_ok=True)
 
-        output_dump_fname = f"{(Path(arc_dir) / suffix).as_posix()}/{suffix}_{year}_inversion.npz"
-        print(output_dump_fname)
-        scale_data, post_bio_tensor, post_bio_unc_tensor, mask, doys = (
-            arc.arc_field(
-                start_date,
-                end_date,
-                geojson_path,
-                start_of_season,
-                the_crop.lower(),
-                output_dump_fname,
-                NUM_SAMPLES,
-                season_length,
-                str(S2_data_folder),
-                plot=False,
-            )
+    output_dump_fname = f"{Path(arc_dir).as_posix()}/field_{crop}_{field_no}_{year}_inversion.npz"
+    print(output_dump_fname)
+    scale_data, post_bio_tensor, post_bio_unc_tensor, mask, doys = (
+        arc.arc_field(
+            start_date,
+            end_date,
+            field_geometry,
+            BG_CROP_CALENDAR[crop][0],
+            crop.lower(),
+            output_dump_fname,
+            NUM_SAMPLES,
+            BG_CROP_CALENDAR[crop][1],
+            str(S2_data_folder),
+            plot=False,
         )
-        npz_to_geotiff(output_dump_fname)
+    )
+    npz_to_geotiff(output_dump_fname)
 
 
 if __name__ == "__main__":
-    geojsons = sorted(
-        [
-            f
-            for f in Path("/home/jose/python/ARC/bulgaria").glob(
-                "field_?.geojson"
-            )
-        ]
-    )
-    # with ProcessPoolExecutor() as executor:
-    for geo in geojsons:
-        # executor.submit(main, geo)
-        main(geo)
+    # start_date = "2019-01-01"0
+    # end_date = "2019-10-15"
+
+    # geojsons = sorted(
+    #     [
+    #         f
+    #         for f in Path("/home/jose/python/ARC/bulgaria").glob(
+    #             "field_?.geojson"
+    #         )
+    #     ]
+    # )
+    # # with ProcessPoolExecutor() as executor:
+    # for geo in geojsons:
+    #     # executor.submit(main, geo)
+    #     main(geo)
+
+    # df = gpd.read_file(field_location_file)
+    # df = df.to_crs(epsg=4326)  # Convert to WGS84
+    # for idx, row in df.iterrow():
+    #     main(row["year"], "wheat", row["geometry"])
+    geojson_file = "/home/jose/python/ARC/bulgaria/bulgaria_fields.geojson"
+    gdf = gpd.read_file(geojson_file)
+    gdf = gdf.to_crs(epsg=4326)  # Convert to WGS84
+    for idx, row in gdf.iterrows():
+        main(2017, "wheat", row["Field_N"], row["geometry"])
