@@ -13,7 +13,7 @@ from shapely.geometry.base import BaseGeometry
 
 from concurrent.futures import ThreadPoolExecutor
 from arc.arc_util import ndvi_filter  # noqa
-
+from .siac_reader import get_s2_siac_files, process_rasters  # noqa
 # from robust_smoothing import robust_smooth
 
 
@@ -34,15 +34,20 @@ def load_geojson(file_path: str):
     Returns:
         shape: The first shape in the GeoJSON file.
     """
-    with open(file_path) as f:
-        features = json.load(f)["features"]
-    geom = shape(features[0]["geometry"])
-    if geom.is_valid:
-        return geom
-    else:
-        geom = geom.buffer(0)
-        return geom
+    if Path(file_path).exists():
+        features = json.load(open(file_path))["features"]
+    elif isinstance(file_path, shapely.geometry.multipolygon.MultiPolygon):
+        geom = file_path
+        return geom if geom.is_valid else geom.buffer(0)
 
+    elif isinstance(file_path, str):
+        features = json.loads(file_path)["features"]
+    elif isinstance(file_path, dict):
+        features = file_path["features"]
+    else:
+        raise ValueError(f"Could not load GeoJSON file: {file_path}")
+    geom = shape(features[0]["geometry"])
+    return geom if geom.is_valid else geom.buffer(0)
     # return .buffer(0)
 
 
@@ -66,8 +71,7 @@ def download_s2_image(feature, geom, S2_data_folder: str) -> str:
 
     # Add the cloud probability band to the image.
     cloud = ee.Image(
-        "COPERNICUS/S2_CLOUD_PROBABILITY/%s"
-        % feature["properties"]["system:index"]
+        "COPERNICUS/S2_CLOUD_PROBABILITY/%s" % feature["properties"]["system:index"]
     )
     image = image.addBands(cloud)
 
@@ -156,9 +160,7 @@ def read_s2_official_data(
 
         if g is None:
             raise IOError(
-                "An error occurred while reading the file: {}".format(
-                    file_name
-                )
+                "An error occurred while reading the file: {}".format(file_name)
             )
 
         data = g.ReadAsArray()
@@ -194,12 +196,8 @@ def calculate_s2_angles(
         return np.nanmean([properties.get(key, np.nan) for key in angle_keys])
 
     s2_bands = ["B2", "B3", "B4", "B5", "B6", "B7", "B8", "B8A", "B11", "B12"]
-    mean_vaa_keys = [
-        f"MEAN_INCIDENCE_AZIMUTH_ANGLE_{band}" for band in s2_bands
-    ]
-    mean_vza_keys = [
-        f"MEAN_INCIDENCE_ZENITH_ANGLE_{band}" for band in s2_bands
-    ]
+    mean_vaa_keys = [f"MEAN_INCIDENCE_AZIMUTH_ANGLE_{band}" for band in s2_bands]
+    mean_vza_keys = [f"MEAN_INCIDENCE_ZENITH_ANGLE_{band}" for band in s2_bands]
 
     szas, vzas, raas = [], [], []
     for feature in features:
@@ -240,7 +238,7 @@ def get_geometry_and_centroid(
 
 
 def get_geojson_geometry_and_centroid(
-    geojson_path: str,
+    geojson_path: str | dict | BaseGeometry,
 ) -> Tuple[BaseGeometry, Tuple[float, float]]:
     """
     Given a geojson file path, this function will load the geojson,
@@ -252,15 +250,19 @@ def get_geojson_geometry_and_centroid(
     Returns:
     tuple: A tuple containing the geojson geometry and its centroid (as a tuple of floats).
     """
-    try:
-        geometry = load_geojson(geojson_path)
-        return get_geometry_and_centroid(geometry)
-    except FileNotFoundError:
-        raise ValueError(f"Geojson file not found at: {geojson_path}")
-    except Exception as e:
-        raise ValueError(
-            "An error occurred while processing the geojson file."
-        ) from e
+    if isinstance(geojson_path, str):
+        try:
+            geometry = load_geojson(geojson_path)
+        except FileNotFoundError:
+            raise ValueError(f"Geojson file not found at: {geojson_path}")
+        except Exception as e:
+            raise ValueError(
+                "An error occurred while processing the geojson file."
+            ) from e
+    else:
+        geometry = geojson_path
+    geometry = geometry.buffer(0)
+    return get_geometry_and_centroid(geometry)
 
 
 def convert_geometry_to_ee_and_mgrs(
@@ -374,9 +376,7 @@ def filter_s2_collection(
         features = s2.getInfo()["features"]
         return features
     except Exception as e:
-        raise RuntimeError(
-            "Failed to filter the Sentinel-2 ImageCollection."
-        ) from e
+        raise RuntimeError("Failed to filter the Sentinel-2 ImageCollection.") from e
 
 
 def get_doys(features: List[Union[dict, ee.Feature]]) -> np.ndarray:
@@ -469,6 +469,7 @@ def get_s2_official_data(
     end_date: str,
     geojson_path: str,
     S2_data_folder: str = "./",
+    siac_data_folder: str | None = None,
 ) -> tuple:
     """
     Get the S2 official data.
@@ -489,19 +490,41 @@ def get_s2_official_data(
             geotransform (tuple): The geotransform of the images.
             crs (str): The coordinate reference system of the images.
     """
+    if siac_data_folder is not None:
+        print("Processing SIAC data")
+        cloud_masks, reflectances, angles, uncertainties, doys = get_s2_siac_files(
+            siac_data_folder, start_date, end_date
+        )
+        (
+            s2_reflectances,
+            s2_reflectances_unc,
+            angles,
+            doys,
+            mask,
+            geotransform,
+            crs,
+        ) = process_rasters(
+            reflectances, uncertainties, cloud_masks, angles, geojson_path
+        )
+        print("Returning SIAC data")
+        return (
+            s2_reflectances,
+            s2_reflectances_unc,
+            angles,
+            doys,
+            mask,
+            geotransform,
+            crs,
+        )
     # try:
     # Load the geojson geometry and calculate its centroid
     geometry, centroid = get_geojson_geometry_and_centroid(geojson_path)
 
     # Convert the centroid and geometry to Earth Engine (EE) object and MGRS tile
-    ee_geometry, mgrs_tile = convert_geometry_to_ee_and_mgrs(
-        centroid, geometry
-    )
+    ee_geometry, mgrs_tile = convert_geometry_to_ee_and_mgrs(centroid, geometry)
 
     # Filter the Sentinel-2 (S2) collection based on the EE geometry, date range, and MGRS tile
-    features = filter_s2_collection(
-        ee_geometry, start_date, end_date, mgrs_tile
-    )
+    features = filter_s2_collection(ee_geometry, start_date, end_date, mgrs_tile)
 
     # Calculate S2 angles
     szas, vzas, raas = calculate_s2_angles(features)
@@ -531,17 +554,11 @@ def get_s2_official_data(
 
 def db_logistic(p, x):
     v1, v2, v3, m0, n0, m1, n1 = p
-    ret = (
-        v1
-        + v2 / (1 + np.exp(-m0 * (x - n0)))
-        - v3 / (1 + np.exp(-m1 * (x - n1)))
-    )
+    ret = v1 + v2 / (1 + np.exp(-m0 * (x - n0))) - v3 / (1 + np.exp(-m1 * (x - n1)))
     return ret
 
 
-def compute_difference(
-    p: List[float], x: np.ndarray, y: np.ndarray
-) -> np.ndarray:
+def compute_difference(p: List[float], x: np.ndarray, y: np.ndarray) -> np.ndarray:
     """
     Computes the difference between a logistic function and provided y values.
 
@@ -580,10 +597,8 @@ if __name__ == "__main__":
     )
     if not os.path.exists(S2_data_folder):
         os.makedirs(S2_data_folder)
-    s2_refs, s2_uncs, s2_angles, doys, mask, geotransform, crs = (
-        get_s2_official_data(
-            start_date, end_date, geojson_path, S2_data_folder=S2_data_folder
-        )
+    s2_refs, s2_uncs, s2_angles, doys, mask, geotransform, crs = get_s2_official_data(
+        start_date, end_date, geojson_path, S2_data_folder=S2_data_folder
     )
     ndvi = (s2_refs[:, 7] - s2_refs[:, 2]) / (s2_refs[:, 7] + s2_refs[:, 2])
 
